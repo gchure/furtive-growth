@@ -14,8 +14,8 @@ class Species():
                  Km_necro : float,
                  gamma : float,
                  Y_nut : float,
-                 Y_necro : float
-                     ):
+                 Y_necro : float 
+                 ):
         """ 
         Initializes a self-replicating species with Monod growth kinetics.
 
@@ -47,6 +47,7 @@ class Species():
         self.Y_nut = Y_nut
         self.Y_necro = Y_necro
         self.gamma = gamma
+
     def compute_properties(self,
                            nut_conc : float,
                            M_necro_tot : float):
@@ -189,13 +190,69 @@ class Ecosystem():
         derivs[-2:] -= self.delta * pars[-2:]
         return derivs
 
+    def _unpack_soln(self,
+                     time_shift : float = 0) -> list[DataFrame]:
+        """
+        Unpacks the solution from the solver into two DataFrames -- one for
+        the environment and one for the species. 
+
+        Parameters
+        ----------
+        time_shift : float
+            For serial integrations, the time shift to apply to the time.
+
+        Returns
+        -------
+        [species_df, bulk_df] : list[DataFrame]
+            A list containing the time and mass trajectories of all species 
+            and the total nutrient concentration in the ecosystem. 
+        """
+        result = self._last_soln.y
+        time_dim = self._last_soln.t
+        biomasses = result[:-2][::2]
+        necromasses = result[:-2][1::2]
+
+        # Determine total mass to compute frequencies
+        tot_mass = np.sum(biomasses, axis=0)
+
+        # Instantiate the species DataFrame
+        dfs = [] 
+        for i in range(self.num_species): 
+            _df = pd.DataFrame(np.array([biomasses[i], necromasses[i]]).T,
+                               columns=['M_bio', 'M_necro'])
+            # Populate with species information 
+            _df['species_idx'] = i + 1
+            _df['mass_frequency'] = biomasses[i] / tot_mass
+            _df['lambda_inst_nut'] = self.species[i].nut_growth_rate
+            _df['lambda_max_nut'] = self.species[i].lambda_nut_max
+            _df['lambda_inst_necro'] = self.species[i].necro_growth_rate
+            _df['lambda_max_necro'] = self.species[i].lambda_necro_max
+            _df['Km_nut'] = self.species[i].Km_nut
+            _df['Km_necro'] = self.species[i].Km_necro
+            _df['gamma'] = self.species[i].gamma
+            _df['Y_nut'] = self.species[i].Y_nut
+            _df['Y_necro'] = self.species[i].Y_necro
+
+            # Add time dimension
+            _df['time'] = time_dim + time_shift
+            dfs.append(_df)
+        species_df = pd.concat(dfs, sort=False)
+         
+        # Convert the bulk results into a DataFrame
+        bulk_df = pd.DataFrame(result[-2:].T, columns=['M_necro_tot', 'M_nut'])
+        bulk_df['M_bio_tot'] = tot_mass
+        bulk_df['time'] = time_dim + time_shift
+        return [species_df, bulk_df]
+
+
     def grow(self, 
-             t_span : list[float],
+             lifetime : float,
              feed_conc: float = 1,
              feed_freq: float = -1,
              delta : float = 0.1,
              dt : float = 0.1,
-             solver_kwargs : dict = {'method': 'LSODA'}
+             solver_kwargs : dict = {'method': 'LSODA'},
+             verbose : bool = True,
              ) -> list[DataFrame]:
         """
         Numerically integrates the ecosystem over the provided time span, 
@@ -204,8 +261,8 @@ class Ecosystem():
 
         Parameters
         ----------
-        t_span : list[float]
-            The time span over which to integrate the ecosystem.
+        lifetime : list[float]
+            The length of time to integrate the ecosystem.
         feed_conc : float
             The concentration of the nutrient in the feedstock.
         feed_freq: float
@@ -218,6 +275,9 @@ class Ecosystem():
             The time spacing at which to return the mass trajectories.
         solver_kwargs : dict
             Additional keyword arguments to pass to the solver.
+        verbose : bool
+            Whether to display a progress bar during the integration. Default is
+            True
 
         Returns
         -------
@@ -237,24 +297,51 @@ class Ecosystem():
         # If feedstock is added as an impulse, set the the time ranges
         if self.feed_freq != -1:
             interval = self.feed_freq**-1
-            num_integrations = int(np.floor(t_span[1]/interval))
-            spans = [[i*interval, i+interval-dt] for i in range(num_integrations)]
-            if t_span[1]%interval != 0:
-                spans.append([num_integrations*interval, t_span[1]])
+            num_integrations = int(np.floor(lifetime/interval))
+            spans = [[i*interval, interval*(i + 1) -dt] for i in range(num_integrations)]
+            if lifetime%interval != 0:
+                spans.append([num_integrations*interval, lifetime])
         else:
-            spans = [t_span]
+            spans = [[0, lifetime]]
+        # Set the iterator based on verbosity
+        if verbose:
+            if len(spans) == 1:
+                print("Growing ecosystem...")
+                iterator = spans
+            else:     
+                iterator = tqdm(spans, desc="Growing ecosystem...")
+        else:
+            iterator = spans
 
         # Iterate through each time span and perform the integration 
-        for i, _span in enumerate(tqdm(spans)):
+        out = [[], []]
+        for i, _span in enumerate(iterator):
             # Set the initial conditions
             if i == 0:
                 p0 = self._init
             else:
-                p0 = self._last_soln 
+                p0 = self._last_soln.y[:,-1] 
 
             # Set the nutrient concentration as an impulse 
             p0[-1] = self.feed_conc
-            t_eval = np.arange(_span[0], _span[1], dt)
-            self._last_soln = solve_ivp(self._dynamical_system, _span, self._init, t_eval=t_eval,
+
+            # Define the actual time window and solve the system
+            interval = _span[1] - _span[0] 
+
+            t_eval = np.arange(0,  interval, dt)
+            self._last_soln = solve_ivp(self._dynamical_system,[0, interval], p0, t_eval=t_eval,
                                         **solver_kwargs)
-            break
+            # Unpack the results into dataframes, keep track of the integration window,
+            # and return
+            dfs = self._unpack_soln(time_shift=_span[0])
+            for j, d in enumerate(dfs):
+                d['integration_window'] = i+1
+                out[j].append(d)
+        if verbose:
+            print("done!")
+        if len(spans) == 1:
+            return [out[0][0], out[1][0]]
+        else:
+            return [pd.concat(out[0], sort=False), pd.concat(out[1], sort=False)]
+
+

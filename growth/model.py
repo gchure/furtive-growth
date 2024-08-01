@@ -1,6 +1,7 @@
 import numpy as np 
 from scipy.integrate import solve_ivp
 from pandas.core.frame import DataFrame
+from .callbacks import extinction_event, fixation_event
 import pandas as pd
 from tqdm import tqdm
 from typing import Union
@@ -47,6 +48,8 @@ class Species():
         self.Y_nut = Y_nut
         self.Y_necro = Y_necro
         self.gamma = gamma
+        self.extinct = False 
+        self.fixed = False
 
     def compute_properties(self,
                            nut_conc : float,
@@ -68,6 +71,8 @@ class Species():
             The outflow dilution rate of the system.
         
         """
+        nut_conc *= nut_conc >= 0
+        M_necro_tot *= M_necro_tot >= 0
         self.nut_growth_rate = self.lambda_nut_max * nut_conc / (self.Km_nut + nut_conc)
         self.necro_growth_rate = self.lambda_necro_max * M_necro_tot / (self.Km_necro + M_necro_tot)
                
@@ -77,7 +82,7 @@ class Species():
                             M_necro : float,
                             nut_conc : float,
                             M_necro_tot : float,
-                            delta : float,
+                            delta : float
                             ) ->  np.ndarray:
         """
         Computes the time derivatives of biomass and nutrient consumption
@@ -104,7 +109,9 @@ class Species():
 
         """
         self.compute_properties(nut_conc, M_necro_tot)
+ 
 
+        # Compute and return the individual derivatives
         dM_bio_dt = self.nut_growth_rate * M_bio + self.necro_growth_rate * M_bio \
                 - self.gamma * M_bio - delta * M_bio
         dM_necro_dt = self.gamma * M_bio - self.necro_growth_rate * M_bio - delta * M_necro
@@ -145,7 +152,8 @@ class Ecosystem():
 
     def _dynamical_system(self,
                           t : float,
-                          pars : np.ndarray[float]):
+                          pars : np.ndarray[float],
+                          args : dict) -> np.ndarray[float]:
         """
         Computes the mass derivatives for all species in the ecosystem 
         as well as the total nutrient dynamics. 
@@ -167,10 +175,15 @@ class Ecosystem():
         # Unpack the masses
         biomass = pars[:-2][::2]
         necromass = pars[:-2][1::2]
-        
+
+        # Compute the frequency and apply the frequency threshold
+        freqs = (biomass / np.sum(biomass)) >= args['freq_thresh']
+        biomass *= freqs 
+         
         # Compute the total nutrient sources
+        pars[-1] = 0 if pars[-1] < args['nut_thresh'] else pars[-1]  
         nut_tot = pars[-1]
-        necro_tot = pars[-2]
+        necro_tot = pars[-2] 
 
         # Iterate through each species and compute the derivatives
         derivs = np.zeros_like(pars)
@@ -211,7 +224,8 @@ class Ecosystem():
         time_dim = self._last_soln.t
         biomasses = result[:-2][::2]
         necromasses = result[:-2][1::2]
-
+        result[-1] *= result[-1] >= 0
+        result[-2] *= result[-2] >= 0
         # Determine total mass to compute frequencies
         tot_mass = np.sum(biomasses, axis=0)
 
@@ -220,6 +234,8 @@ class Ecosystem():
         for i in range(self.num_species): 
             _df = pd.DataFrame(np.array([biomasses[i], necromasses[i]]).T,
                                columns=['M_bio', 'M_necro'])
+            s = self.species[i]
+            s.compute_properties(result[-1], result[-2])
             # Populate with species information 
             _df['species_idx'] = i + 1
             _df['mass_frequency'] = biomasses[i] / tot_mass
@@ -251,8 +267,11 @@ class Ecosystem():
              feed_freq: float = -1,
              delta : float = 0.1,
              dt : float = 0.1,
-             solver_kwargs : dict = {'method': 'LSODA'},
              verbose : bool = True,
+             nut_thresh: float = 0, 
+             freq_thresh: float = 0, 
+             term_event : dict = {'type': None},
+             solver_kwargs : dict = {'method': 'LSODA'},
              ) -> list[DataFrame]:
         """
         Numerically integrates the ecosystem over the provided time span, 
@@ -273,12 +292,19 @@ class Ecosystem():
             The outflow dilution rate of the ecosystem.
         dt : float
             The time spacing at which to return the mass trajectories.
-        solver_kwargs : dict
-            Additional keyword arguments to pass to the solver.
         verbose : bool
             Whether to display a progress bar during the integration. Default is
             True
-
+        nut_thresh : float
+            The threshold below which the nutrient concentration is set to zero.
+        freq_thresh : float
+            The threshold below which the frequency of a species is set to zero.
+        term_event : dict
+            A dictionary of termination events to pass to the solver. Only 
+            acceptable responses are "extinction" and "fixation". Must also 
+            provide the frequency threshold for the event. 
+        solver_kwargs : dict
+            Additional keyword arguments to pass to the solver.
         Returns
         -------
         [species_df, bulk_df] : list[DataFrame]
@@ -313,6 +339,27 @@ class Ecosystem():
         else:
             iterator = spans
 
+        # Specify arguments to be fed to the integrator
+        args = {'freq_thresh':freq_thresh, 'nut_thresh':nut_thresh}
+
+        # Determine if callbacks should be applied
+        events = []
+        if term_event['type'] == 'extinction':
+            if verbose:
+                print("Watching for extinction events...")
+            extinction_event.terminal = True
+            extinction_event.direction = 1
+            args['thresh'] = term_event['thresh']
+            events.append(extinction_event)
+        elif term_event['type'] == 'fixation':
+            if verbose: 
+                print("Watching for a fixation event...")
+            args['thresh'] = term_event['thresh']
+            fixation_event.terminal = True
+            fixation_event.direction = 1
+            events.append(fixation_event)
+        args['species'] = self.species
+
         # Iterate through each time span and perform the integration 
         out = [[], []]
         for i, _span in enumerate(iterator):
@@ -327,16 +374,27 @@ class Ecosystem():
 
             # Define the actual time window and solve the system
             interval = _span[1] - _span[0] 
-
-            t_eval = np.arange(0,  interval, dt)
-            self._last_soln = solve_ivp(self._dynamical_system,[0, interval], p0, t_eval=t_eval,
+            if dt > 0:
+                t_eval = np.arange(0,  interval, dt)
+                self._last_soln = solve_ivp(self._dynamical_system,[0, interval], p0,
+                                        t_eval=t_eval, args=(args,),events=events, 
                                         **solver_kwargs)
+            else:
+                self._last_soln = solve_ivp(self._dynamical_system,[0, interval], p0,
+                                        args=(args,),events=events, 
+                                        **solver_kwargs)
+
             # Unpack the results into dataframes, keep track of the integration window,
             # and return
             dfs = self._unpack_soln(time_shift=_span[0])
             for j, d in enumerate(dfs):
                 d['integration_window'] = i+1
                 out[j].append(d)
+            if self._last_soln.status == 1:
+                if verbose:
+                    print(f'An {term_event["type"]} event occurred at t = {_span[0] + self._last_soln.t[-1]:0.1f}')
+                break
+
         if verbose:
             print("done!")
         if len(spans) == 1:

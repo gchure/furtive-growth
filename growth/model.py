@@ -114,7 +114,7 @@ class Species():
         # Compute and return the individual derivatives
         dM_bio_dt = self.nut_growth_rate * M_bio + self.necro_growth_rate * M_bio \
                 - self.gamma * M_bio - delta * M_bio
-        dM_necro_dt = self.gamma * M_bio - self.necro_growth_rate * M_bio - delta * M_necro
+        dM_necro_dt = self.gamma * M_bio - (self.necro_growth_rate * M_bio / self.Y_necro) - delta * M_necro
         dnut_dt = -self.nut_growth_rate * M_bio / self.Y_nut
         return np.array([dM_bio_dt, dM_necro_dt, dnut_dt])  
 
@@ -316,13 +316,20 @@ class Ecosystem():
         self.delta = delta
         self.feed_conc = feed_conc
         self.feed_freq = feed_freq
-
+        self.terminated = False
         # Add ithe initial nutrient concentration
         self._init[-1] = self.feed_conc
 
         # If feedstock is added as an impulse, set the the time ranges
-        if self.feed_freq != -1:
-            interval = self.feed_freq**-1
+        if self.feed_freq >= 0:
+            if self.feed_freq > 0:
+                interval = self.feed_freq**-1
+                if np.floor(interval) > lifetime:
+                    raise ValueError("The feed frequency is longer than the integration time")
+                if interval < max([dt, 0.01]):
+                    raise ValueError("The feed frequency is shorter than the integration time step")
+            elif self.feed_freq == 0:
+                interval = lifetime + 0.01
             num_integrations = int(np.floor(lifetime/interval))
             spans = [[i*interval, interval*(i + 1) -dt] for i in range(num_integrations)]
             if lifetime%interval != 0:
@@ -360,6 +367,9 @@ class Ecosystem():
             events.append(fixation_event)
         args['species'] = self.species
 
+
+        # TODO: Allow a way to bypass returning the trajectories and 
+        # just return the steady-state. May be a different method.
         # Iterate through each time span and perform the integration 
         out = [[], []]
         for i, _span in enumerate(iterator):
@@ -391,6 +401,7 @@ class Ecosystem():
                 d['integration_window'] = i+1
                 out[j].append(d)
             if self._last_soln.status == 1:
+                self.terminated = True
                 if verbose:
                     print(f'An {term_event["type"]} event occurred at t = {_span[0] + self._last_soln.t[-1]:0.1f}')
                 break

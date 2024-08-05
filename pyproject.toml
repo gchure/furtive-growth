@@ -21,3 +21,9 @@ ipykernel = "^6.29.5"
 [build-system]
 requires = ["poetry-core"]
 build-backend = "poetry.core.masonry.api"
+
+exclude = [
+    "sandbox",
+    "simulations",
+    "doc"
+]

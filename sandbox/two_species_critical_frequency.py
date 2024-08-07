@@ -28,8 +28,8 @@ bugs = [growth.model.Species(lambda_nut_max=lambda_max[i], gamma=gamma[i], **com
 eco = growth.model.Ecosystem(bugs, init_total_biomass=1, init_total_necromass=0.0)
 #%%
 # Set a range of frequencies
-total_time = 3000 
-omegas = np.logspace(-2.5,  -1, 300)
+total_time = 2000 
+omegas = np.logspace(np.log10(2/total_time),  -1, 300)
 freqs = pd.DataFrame()
 for i, w in enumerate(tqdm.tqdm(omegas)):
     species, bulk = eco.grow(total_time, feed_conc=1E6, feed_freq=w, 

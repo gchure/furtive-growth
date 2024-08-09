@@ -26,6 +26,7 @@ bugs = [growth.model.Species(lambda_nut_max=lambda_max[i], gamma=gamma[i], **com
 
 # Define the ecosystem
 eco = growth.model.Ecosystem(bugs, init_total_biomass=1, init_total_necromass=0.0)
+species, bulk = eco.grow(100, feed_freq=-1, feed_conc=1E6, delta=0.1)
 #%%
 # Set a range of frequencies
 total_time = 2000 
@@ -34,7 +35,8 @@ freqs = pd.DataFrame()
 for i, w in enumerate(tqdm.tqdm(omegas)):
     species, bulk = eco.grow(total_time, feed_conc=1E6, feed_freq=w, 
                          delta=0, freq_thresh=0, solver_kwargs={'method': 'LSODA'},
-                         verbose=False, term_event={'type':'extinction', 'thresh':1E-3})
+                         verbose=False, term_event={'type':'extinction', 'thresh':1E-3},
+                         dt=0.01)
     if eco.terminated:
         end_state = species[species['time']==species['time'].max()].copy()
     else:
@@ -47,7 +49,7 @@ for i, w in enumerate(tqdm.tqdm(omegas)):
     freqs = pd.concat([freqs, end_state])
 
 #%% 
-species = species[species['time']>=0.75*total_time]
+# species = species[species['time']>=0.75*total_time]
 # Add colors to the species
 species['color'] = cor['primary_black']
 species.loc[species['species_idx']==2, 'color'] = cor['primary_red']

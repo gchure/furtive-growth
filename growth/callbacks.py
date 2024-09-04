@@ -28,14 +28,16 @@ def extinction_event(t : float,
         This is required as a zero crossing event for the root finding algorithm 
         in the ODE solver.
     """
-
     # Unpack the parameters and compute the frequency.
     biomasses = params[:-2][::2] 
     freqs = biomasses / np.sum(biomasses)
-    if (freqs <= args['thresh']).any():
-        for i, f in enumerate(freqs):
-            if f <= args['thresh']:
-                args['species'][i].extinct = True
+    if 'freq_thresh' in args:
+        freq_ext = freqs <= args['freq_thresh']
+    if 'biomass_thresh' in args:
+        biomass_ext = biomasses <= args['biomass_thresh']
+    if (freq_ext).any() or (biomass_ext).any():
+        for i, _ in enumerate(freq_ext):
+            args['species'][i].extinct = True
         return 0
     else:
         return -1

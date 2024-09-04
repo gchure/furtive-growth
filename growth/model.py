@@ -176,10 +176,6 @@ class Ecosystem():
         biomass = pars[:-2][::2]
         necromass = pars[:-2][1::2]
 
-        # Compute the frequency and apply the frequency threshold
-        freqs = (biomass / np.sum(biomass)) >= args['freq_thresh']
-        biomass *= freqs 
-         
         # Compute the total nutrient sources
         pars[-1] = 0 if pars[-1] < args['nut_thresh'] else pars[-1]  
         nut_tot = pars[-1]
@@ -269,7 +265,6 @@ class Ecosystem():
              dt : float = 0.1,
              verbose : bool = True,
              nut_thresh: float = 0, 
-             freq_thresh: float = 0, 
              term_event : dict = {'type': None},
              solver_kwargs : dict = {'method': 'LSODA'},
              ) -> list[DataFrame]:
@@ -297,8 +292,6 @@ class Ecosystem():
             True
         nut_thresh : float
             The threshold below which the nutrient concentration is set to zero.
-        freq_thresh : float
-            The threshold below which the frequency of a species is set to zero.
         term_event : dict
             A dictionary of termination events to pass to the solver. Only 
             acceptable responses are "extinction" and "fixation". Must also 
@@ -347,7 +340,7 @@ class Ecosystem():
             iterator = spans
 
         # Specify arguments to be fed to the integrator
-        args = {'freq_thresh':freq_thresh, 'nut_thresh':nut_thresh}
+        args = {'nut_thresh':nut_thresh}
 
         # Determine if callbacks should be applied
         events = []
@@ -356,7 +349,12 @@ class Ecosystem():
                 print("Watching for extinction events...")
             extinction_event.terminal = True
             extinction_event.direction = 1
-            args['thresh'] = term_event['thresh']
+            if 'freq_thresh' in term_event:
+                args['freq_thresh'] = term_event['freq_thresh']
+            if 'biomass_thresh' in term_event:
+                args['biomass_thresh'] = term_event['biomass_thresh']
+            if ('freq_thresh' not in args) and ('biomass_thresh' not in args):
+                raise ValueError("Must provide either 'freq_thresh' and 'biomass_thresh' for extinction callback")
             events.append(extinction_event)
         elif term_event['type'] == 'fixation':
             if verbose: 

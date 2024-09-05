@@ -5,7 +5,6 @@ from .callbacks import extinction_event, fixation_event
 import pandas as pd
 from tqdm import tqdm
 from typing import Union
-
 class Species():
     """Base class for a simple self replicator following Monod growth kinetics"""
     def __init__(self,
@@ -17,6 +16,7 @@ class Species():
                  Y_nut : float,
                  Y_necro : float 
                  ):
+
         """ 
         Initializes a self-replicating species with Monod growth kinetics.
 
@@ -176,6 +176,9 @@ class Ecosystem():
         biomass = pars[:-2][::2]
         necromass = pars[:-2][1::2]
 
+        if 'biomass_thresh' in args:
+            biomass = np.where(biomass >= args['biomass_thresh'], biomass, 0)
+
         # Compute the total nutrient sources
         pars[-1] = 0 if pars[-1] < args['nut_thresh'] else pars[-1]  
         nut_tot = pars[-1]
@@ -264,6 +267,7 @@ class Ecosystem():
              delta : float = 0.1,
              dt : float = 0.1,
              verbose : bool = True,
+             biomass_thresh : float = 1.0,
              nut_thresh: float = 0, 
              term_event : dict = {'type': None},
              solver_kwargs : dict = {'method': 'LSODA'},
@@ -290,6 +294,8 @@ class Ecosystem():
         verbose : bool
             Whether to display a progress bar during the integration. Default is
             True
+        biomass_thresh : float
+            The threshold below which the biomass is set to zero.
         nut_thresh : float
             The threshold below which the nutrient concentration is set to zero.
         term_event : dict
@@ -340,7 +346,8 @@ class Ecosystem():
             iterator = spans
 
         # Specify arguments to be fed to the integrator
-        args = {'nut_thresh':nut_thresh}
+        args = {'nut_thresh':nut_thresh,
+                'biomass_thresh': biomass_thresh}
 
         # Determine if callbacks should be applied
         events = []

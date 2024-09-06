@@ -38,6 +38,7 @@ bugs = [growth.model.Species(lambda_nut_max=lambda_max[i], gamma=gamma[i], **par
 eco = growth.model.Ecosystem(bugs, init_total_biomass=100, init_total_necromass=0.0)
 
 # Simulate the ecosystem
+#%%
 delta = 0.1
 species, bulk = eco.grow(500, feed_freq=-1, feed_conc=1E4, delta=delta, dt=0.01,
                          biomass_thresh=0)
@@ -78,11 +79,11 @@ plt.savefig('./plots/fig2_tradeoff.pdf', bbox_inches='tight')
 
 #%%
 # Scan over dilution rates
-delta_range = np.linspace(0.05, 0.4, 300)
+delta_range = np.linspace(0.05, 0.4, 100)
 steadystate = pd.DataFrame()
 steadystate_bulk = pd.DataFrame()
 for i, delta in enumerate(tqdm.tqdm(delta_range)):
-    species, bulk = eco.grow(10000, feed_freq=-1, feed_conc=1E4, delta=delta,
+    species, bulk = eco.grow(50/delta, feed_freq=-1, feed_conc=1E4, delta=delta,
                          biomass_thresh=0, verbose=False)
     _bulk = bulk[bulk['time'] == bulk['time'].max()]
     _bulk = _bulk[['M_bio_tot', 'M_nut']]
@@ -97,21 +98,33 @@ for i, delta in enumerate(tqdm.tqdm(delta_range)):
     steadystate = pd.concat([steadystate, _species], sort=False)
 
 #%%
-fig, ax = plt.subplots(1,1, figsize=(4.5, 1))
+fig, ax = plt.subplots(1,1, figsize=(3, 1))
 for g, d in steadystate.groupby('species_idx'):
     if g == 100:
-        lw=1
         color = cor['primary_red']
-    else:
         lw=1
-        color = gamma_pal[g-1]
-    ax.plot(d['delta'], d['mass_frequency'],  ms=4, color=color, lw=lw)
-ax.set_xlabel('$\delta$ [hr$^{-1}$]', fontsize=6)
-ax.set_ylabel('end-state\nspecies frequency', fontsize=6)
-plt.savefig('./plots/fig2_chemostat_tradeoff_endstate_frequency.pdf', bbox_inches='tight')
+    else:
+        color=gamma_pal[g-1]
+        lw=0.5
+    plt.plot(d['delta'], d['cap_lambda_max'], color=color,
+    lw=lw)
+    plt.xlabel('$\delta$ [hr$^{-1}$]', fontsize=6)
+    plt.ylabel('$\lambda_s(c_{nt}) - \gamma_s$', fontsize=6)
+plt.savefig('./plots/fig3_lambda_eff.pdf')
 
 #%%
-steadystate.to_csv('./fig2D_chemostat_tradeoff_endstate_frequency.csv')
 
-#%%
-steadystate
+fig, ax = plt.subplots(1,1, figsize=(3, 1))
+_spec = species[species['species_idx'] == 100]
+for g, d in steadystate.groupby('species_idx'):
+    if g == 100:
+        color = cor['primary_red']
+        lw=1
+    else:
+        color=gamma_pal[g-1]
+        lw=0.5
+    plt.plot(d['delta'], d['cap_lambda_max'], color=color,
+    lw=lw)
+    plt.xlabel('$\delta$ [hr$^{-1}$]', fontsize=6)
+    plt.ylabel('$\lambda_s(c_{nt}) - \gamma_s$', fontsize=6)
+plt.savefig('./plots/fig3_zerocrossing_eff.pdf')

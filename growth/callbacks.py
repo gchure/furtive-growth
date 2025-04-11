@@ -75,9 +75,9 @@ def fixation_event(t : float,
     # Unpack the parameters and compute the frequency.
     biomasses = params[:-2][::2] 
     freqs = biomasses / np.sum(biomasses)
-    if (freqs >= args['thresh']).any():
+    if (freqs >= args['freq_thresh']).any():
         for i, f in enumerate(freqs):
-            if f >= args['thresh']:
+            if f >= args['freq_thresh']:
                 args['species'][i].fixed = True
             return 0
     else:

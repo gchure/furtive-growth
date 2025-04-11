@@ -5,83 +5,61 @@ from .callbacks import extinction_event, fixation_event
 import pandas as pd
 from tqdm import tqdm
 from typing import Union
-class Species():
-    """Base class for a simple self replicator following Monod growth kinetics"""
-    def __init__(self,
-                 lambda_nut_max : float,
-                 lambda_necro_max : float,
-                 Km_nut : float,
-                 Km_necro : float,
-                 gamma : float,
-                 Y_nut : float,
-                 Y_necro : float 
-                 ):
 
+class Species():
+    """
+    Base class for a simple self replicator following Monod growth kinetics.
+    """
+    def __init__(self,
+                 lambda_max : float = 1.0,
+                 Km         : float = 0.01,
+                 gamma      : float = 0.1,
+                 Y          : float = 0.1,
+                 ) -> None:
         """ 
         Initializes a self-replicating species with Monod growth kinetics.
 
         Parameters
         ----------
-        lambda_nut_max : float
+        lambda_max : float
             The maximum growth rate of the species on nutrients.
-        lambda_nut_max : float
-            The maximum growth rate of the species on necromass. 
-        Km_nut : float
+        Km : float
             The Monod constant for growth on nutrients. 
-        Km_necro : float
-            The Monod constant for growth on necromass.
         gamma : float
             The death rate of the species.
-        Y_nut : float
+        Y : float
             The yield coefficient for growth on nutrients. Has dimensions of 
             biomass produced per unit of substrate consumed.            
-        Y_necro : float
-            The yield coefficient for growth on necromass. Has dimensions of 
-            biomass produced per unit of substrate consumed.            
- 
         """
         # Set the parameters
-        self.lambda_nut_max = lambda_nut_max
-        self.lambda_necro_max = lambda_necro_max
-        self.Km_nut = Km_nut
-        self.Km_necro = Km_necro
-        self.Y_nut = Y_nut
-        self.Y_necro = Y_necro
+        self.lambda_max = lambda_max
+        self.Km = Km
+        self.Y = Y
         self.gamma = gamma
+
+        # Set parameters to keep track of the individual species
         self.extinct = False 
         self.fixed = False
 
-    def compute_properties(self,
-                           nut_conc : float,
-                           M_necro_tot : float):
+    def compute_growth_rate(self,
+                           c_nt  : float,
+                           ) -> None:
         """
         Computes the growth rates on nutrient and necromass
 
         Parameters
         ----------
-        M_bio : float
-            The biomass of the species.
-        M_necro : float
-            The necromass of the species.
-        nut_conc : float
+        c_nt : float
             The environmental nutrient concentration.
-        M_nectro_tot: float 
-            The total consumable necromass in the environment.
-        delta : float
-            The outflow dilution rate of the system.
-        
         """
-        nut_conc *= nut_conc >= 0
-        M_necro_tot *= M_necro_tot >= 0
-        self.nut_growth_rate = self.lambda_nut_max * nut_conc / (self.Km_nut + nut_conc)
-        self.necro_growth_rate = self.lambda_necro_max * M_necro_tot / (self.Km_necro + M_necro_tot)
-               
 
+        # Ensure that the nutrient concentration does not become unphysical
+        c_nt = max(c_nt, 0)
+        self.growth_rate = self.lambda_max * c_nt / (self.Km + c_nt)
+               
     def compute_derivatives(self,
-                            M_bio : float,
-                            M_necro : float,
-                            nut_conc : float,
-                            M_necro_tot : float,
+                            M     : float,   
+                            c_nt  : float, 
                             delta : float
                             ) ->  np.ndarray:
         """
@@ -90,41 +68,33 @@ class Species():
 
         Parameters
         ----------
-        M_bio : float
+        M : float
             The biomass of the species.
-        M_necro : float
-            The necromass of the species.
-        nut_conc : float
+        c_nt: float
             The environmental nutrient concentration.
-        M_nectro_tot: float 
-            The total consumable necromass in the environment.
         delta : float
             The outflow dilution rate of the system.
         
         Returns
         -------
         np.ndarray
-            An array containing the time derivatives of species biomass, species 
-            necromass, and nutrient consumption per species.
+            An array containing the time derivatives of species biomass and
+            nutrient consumption per species.
 
         """
-        self.compute_properties(nut_conc, M_necro_tot)
- 
+        self.compute_growth_rate(c_nt)
 
         # Compute and return the individual derivatives
-        dM_bio_dt = self.nut_growth_rate * M_bio + self.necro_growth_rate * M_bio \
-                - self.gamma * M_bio - delta * M_bio
-        dM_necro_dt = self.gamma * M_bio - (self.necro_growth_rate * M_bio / self.Y_necro) - delta * M_necro
-        dnut_dt = -self.nut_growth_rate * M_bio / self.Y_nut
-        return np.array([dM_bio_dt, dM_necro_dt, dnut_dt])  
-
+        dM_dt = M * (self.growth_rate - self.gamma - delta)
+        dc_nt_dt = -self.growth_rate * M / self.Y
+        return np.array([dM_dt, dc_nt_dt])  
 
 class Ecosystem():
     def __init__(self,
-                 species : list[Species],
-                 species_freqs : Union[None, list[float]] = None,
-                 init_total_biomass : float = 1,
-                 init_total_necromass : float = 0):
+                 species              : list[Species],
+                 species_freqs        : Union[None, list[float]] = None,
+                 init_total_biomass   : float = 1,
+                 ) -> None:
         """
         Initializes an ecosystem with a list of species. 
 
@@ -132,23 +102,24 @@ class Ecosystem():
         ----------
         species : list
             A list of Species objects representing the species in the ecosystem.
-       species_freqs : list[float] or None
+        species_freqs : list[float] or None
             The frequency of each species in the ecosystem. If None, all species
             are assumed to have equal frequency.
+        init_total_biomass  : float
+            The initial sum-total biomass of all species in the system.
         """
         self.species = species
         self.num_species = len(species)
+
+        # If initial frequencies not supplied,assume they are equally abundant.
         if species_freqs is None:
             self.species_freqs = np.ones(self.num_species)/self.num_species
-        else:
+        else:  # Otherwise, use the user-provided frequencies
             self.species_freqs = species_freqs
 
         # Set the initial masses 
-        self._init = np.vstack((
-            np.ones(self.num_species) * init_total_biomass * self.species_freqs,
-            np.ones(self.num_species) * init_total_necromass * self.species_freqs,
-            )).reshape((-1,),order='F')
-        self._init = np.append(self._init, [init_total_necromass, 0])
+        self._init = np.ones(self.num_species) * init_total_biomass * species_freqs
+        self._init = np.append(self._init, [0])
 
     def _dynamical_system(self,
                           t : float,
@@ -173,37 +144,35 @@ class Ecosystem():
         """
 
         # Unpack the masses
-        biomass = pars[:-2][::2]
-        necromass = pars[:-2][1::2]
-
-        if 'biomass_thresh' in args:
-            biomass = np.where(biomass >= args['biomass_thresh'], biomass, 0)
+        biomass = pars[:-1] 
 
         # Compute the total nutrient sources
         pars[-1] = 0 if pars[-1] < args['nut_thresh'] else pars[-1]  
-        nut_tot = pars[-1]
-        necro_tot = pars[-2] 
+        c_nt = pars[-1]
 
         # Iterate through each species and compute the derivatives
         derivs = np.zeros_like(pars)
         for i, s in enumerate(self.species):
-            _derivs = s.compute_derivatives(biomass[i], necromass[i], nut_tot, necro_tot, self.delta)
-            derivs[i*2:i*2+2] = _derivs[:-1]
+            # Evaluate derivs.
+            _derivs = s.compute_derivatives(biomass[i], c_nt, self.delta)
 
-            # Keep track of total nutrient and total necromass consumption
+            # Update biomass 
+            derivs[i] = _derivs[0]
+            
+            # Update nutrient concentration
             derivs[-1] += _derivs[-1]
-            derivs[-2] += _derivs[1]
 
         # Account for the inflow feedstock
         if self.feed_freq == -1:
             derivs[-1] += self.feed_conc * self.delta
 
         # Account for dilutive loss         
-        derivs[-2:] -= self.delta * pars[-2:]
+        derivs[-1] -= self.delta * pars[-1]
         return derivs
 
     def _unpack_soln(self,
-                     time_shift : float = 0) -> list[DataFrame]:
+                     time_shift : float = 0
+                     ) -> list[DataFrame]:
         """
         Unpacks the solution from the solver into two DataFrames -- one for
         the environment and one for the species. 
@@ -221,56 +190,50 @@ class Ecosystem():
         """
         result = self._last_soln.y
         time_dim = self._last_soln.t
-        biomasses = result[:-2][::2]
-        necromasses = result[:-2][1::2]
-        result[-1] *= result[-1] >= 0
-        result[-2] *= result[-2] >= 0
+        biomasses = result[:-1]
+        result[-1] = max(result[-1], 0)
         # Determine total mass to compute frequencies
         tot_mass = np.sum(biomasses, axis=0)
 
         # Instantiate the species DataFrame
         dfs = [] 
         for i in range(self.num_species): 
-            _df = pd.DataFrame(np.array([biomasses[i], necromasses[i]]).T,
-                               columns=['M_bio', 'M_necro'])
             s = self.species[i]
-            s.compute_properties(result[-1], result[-2])
-            # Populate with species information 
-            _df['species_idx'] = i + 1
-            _df['mass_frequency'] = biomasses[i] / tot_mass
-            _df['lambda_inst_nut'] = self.species[i].nut_growth_rate
-            _df['lambda_max_nut'] = self.species[i].lambda_nut_max
-            _df['lambda_inst_necro'] = self.species[i].necro_growth_rate
-            _df['lambda_max_necro'] = self.species[i].lambda_necro_max
-            _df['Km_nut'] = self.species[i].Km_nut
-            _df['Km_necro'] = self.species[i].Km_necro
-            _df['gamma'] = self.species[i].gamma
-            _df['Y_nut'] = self.species[i].Y_nut
-            _df['Y_necro'] = self.species[i].Y_necro
-
-            # Add time dimension
-            _df['time'] = time_dim + time_shift
+            s.compute_growth_rate(result[-1]) 
+            _df = pd.DataFrame(
+                {'M': biomasses[i],
+                 'frequency': biomasses[i] / tot_mass,
+                 'growth_rate': self.species[i].growth_rate,
+                 'growth_rate_max': self.species[i].lambda_max,
+                 'gamma': self.species[i].gamma,
+                 'growth_rate_eff': self.species[i].growth_rate - self.species[i].gamma,
+                 'Km': self.species[i].Km,
+                 'Y': self.species[i].Y,
+                 'time': time_dim + time_shift
+                },
+                index=[0]
+                )
             dfs.append(_df)
         species_df = pd.concat(dfs, sort=False)
          
         # Convert the bulk results into a DataFrame
-        bulk_df = pd.DataFrame(result[-2:].T, columns=['M_necro_tot', 'M_nut'])
-        bulk_df['M_bio_tot'] = tot_mass
+        bulk_df = pd.DataFrame(result[-1].T, columns=['M_nut'])
+        bulk_df['M_tot'] = tot_mass
         bulk_df['time'] = time_dim + time_shift
         return [species_df, bulk_df]
 
 
     def grow(self, 
-             lifetime : float,
-             feed_conc: float = 1,
-             feed_freq: float = -1,
-             delta : float = 0.1,
-             dt : float = 0.1,
-             verbose : bool = True,
+             lifetime       : float,
+             feed_conc      : float = 1,
+             feed_freq      : float = -1,
+             delta          : float = 0.1,
+             dt             : float = 0.1,
+             verbose        : bool = True,
              biomass_thresh : float = 1.0,
-             nut_thresh: float = 0, 
-             term_event : dict = {'type': None},
-             solver_kwargs : dict = {'method': 'LSODA'},
+             nut_thresh     : float = 0, 
+             term_event     : dict = {'type': None},
+             solver_kwargs  : dict = {'method': 'LSODA'},
              ) -> list[DataFrame]:
         """
         Numerically integrates the ecosystem over the provided time span, 
@@ -316,7 +279,8 @@ class Ecosystem():
         self.feed_conc = feed_conc
         self.feed_freq = feed_freq
         self.terminated = False
-        # Add ithe initial nutrient concentration
+
+        # Add the initial nutrient concentration
         self._init[-1] = self.feed_conc
 
         # If feedstock is added as an impulse, set the the time ranges
@@ -330,11 +294,15 @@ class Ecosystem():
             elif self.feed_freq == 0:
                 interval = lifetime + 0.01
             num_integrations = int(np.floor(lifetime/interval))
+
+            # FIXME: This is slow, but fine if you're not doing enormously long
+            # integrations. 
             spans = [[i*interval, interval*(i + 1) -dt] for i in range(num_integrations)]
             if lifetime%interval != 0:
                 spans.append([num_integrations*interval, lifetime])
         else:
             spans = [[0, lifetime]]
+
         # Set the iterator based on verbosity
         if verbose:
             if len(spans) == 1:
@@ -352,10 +320,14 @@ class Ecosystem():
         # Determine if callbacks should be applied
         events = []
         if term_event['type'] == 'extinction':
+
             if verbose:
                 print("Watching for extinction events...")
+
+            # Set extinction callback attributes.
             extinction_event.terminal = True
             extinction_event.direction = 1
+
             if 'freq_thresh' in term_event:
                 args['freq_thresh'] = term_event['freq_thresh']
             if 'biomass_thresh' in term_event:
@@ -363,13 +335,17 @@ class Ecosystem():
             if ('freq_thresh' not in args) and ('biomass_thresh' not in args):
                 raise ValueError("Must provide either 'freq_thresh' and 'biomass_thresh' for extinction callback")
             events.append(extinction_event)
+
         elif term_event['type'] == 'fixation':
             if verbose: 
                 print("Watching for a fixation event...")
-            args['thresh'] = term_event['thresh']
+            args['freq_thresh'] = term_event['freq_thresh']
+
+            # Set fixation callback attributes
             fixation_event.terminal = True
             fixation_event.direction = 1
             events.append(fixation_event)
+
         args['species'] = self.species
 
 

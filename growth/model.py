@@ -23,6 +23,8 @@ class Species():
     Y : float
         The yield coefficient for growth on nutrients. Has dimensions of 
         biomass produced per unit of substrate consumed.
+    label : int
+        The species label.
         
     Attributes
     ----------
@@ -41,6 +43,7 @@ class Species():
     Km: float = 0.01
     gamma: float = 0.1
     Y: float = 0.1
+    label : Union[int, str] = 0
 
     # Internal state variables.
     growth_rate: float = field(default=0.0, init=False)
@@ -69,7 +72,7 @@ class Species():
         c_nt : float
             The environmental nutrient concentration.
         """
-        c_nt = max(c_nt, 0)  # Ensure physical concentration
+        c_nt = np.maximum(c_nt, 0)  # Ensure physical concentration
         self.growth_rate = self.lambda_max * c_nt / (self.Km + c_nt)
         self.effective_growth_rate = self.growth_rate - self.gamma
         
@@ -118,40 +121,66 @@ class Species():
             'Km': self.Km,
             'Y': self.Y,
             'extinct': self.extinct,
-            'fixed': self.fixed
+            'fixed': self.fixed,
+            'label': self.label
         }
 
-class Ecosystem():
-    def __init__(self,
-                 species: list[Species],
-                 species_freqs: Union[None, list[float]] = None,
-                 init_total_biomass: float = 1) -> None:
-        """
-        Initializes an ecosystem with a list of species. 
+@dataclass
+class Ecosystem:
+    """
+    Initializes an ecosystem with a list of species. 
 
-        Parameters
-        ----------
-        species : list
-            A list of Species objects representing the species in the ecosystem.
-        species_freqs : list[float] or None
-            The frequency of each species in the ecosystem. If None, all species
-            are assumed to have equal frequency.
-        init_total_biomass  : float
-            The initial sum-total biomass of all species in the system.
-        """
-        self.species = species
-        self.num_species = len(species)
-
-        # If initial frequencies not supplied, assume they are equally abundant
-        if species_freqs is None:
-            self.species_freqs = np.ones(self.num_species)/self.num_species
-        else:
-            self.species_freqs = species_freqs
-
-        # Set the initial masses and add placeholder for nutrient
-        self._init = np.ones(self.num_species) * init_total_biomass * species_freqs
-        self._init = np.append(self._init, [0])
+    Parameters
+    ----------
+    species : list
+        A list of Species objects representing the species in the ecosystem.
+    species_freqs : list[float] or None
+        The frequency of each species in the ecosystem. If None, all species
+        are assumed to have equal frequency.
+    init_total_biomass  : float
+        The initial sum-total biomass of all species in the system.
         
+    Attributes
+    ----------
+    species : list
+        The list of Species objects in the ecosystem.
+    species_freqs : list[float]
+        The frequency of each species in the ecosystem.
+    init_total_biomass : float
+        The initial sum-total biomass of all species in the system.
+    num_species : int
+        The number of species in the ecosystem.
+    _init : np.ndarray
+        The initial biomasses of each species followed by a placeholder for nutrient.
+    """
+    species: list[Species]
+    species_freqs: Union[None, list[float]] = None
+    init_total_biomass: float = 1
+    
+    # Fields that are computed from the inputs
+    num_species: int = field(init=False)
+    _init: np.ndarray = field(init=False)
+    
+    def __post_init__(self):
+        """
+        Initializes computed fields after the dataclass initialization.
+        """
+        self.num_species = len(self.species)
+
+        # Ensure that each species has a unique label
+        labels = set() 
+        for s in self.species:
+            if s.label in labels:
+                raise ValueError(f'Species label {s.label} is not unique!')
+                
+        # If initial frequencies not supplied, assume they are equally abundant
+        if self.species_freqs is None:
+            self.species_freqs = np.ones(self.num_species)/self.num_species
+            
+        # Set the initial masses and add placeholder for nutrient
+        self._init = np.ones(self.num_species) * self.init_total_biomass * self.species_freqs
+        self._init = np.append(self._init, [0])
+       
     def _dynamical_system(self, 
                           t   : float, 
                           pars: np.ndarray, 
@@ -215,7 +244,7 @@ class Ecosystem():
         result = self._last_soln.y
         time_dim = self._last_soln.t
         biomasses = result[:-1]
-        c_nt = max(result[-1], 0)  # Ensure physical nutrient concentration
+        c_nt = np.maximum(result[-1], 0) # Ensure physical nutrient concentration
         tot_mass = np.sum(biomasses, axis=0)
         
         # Create species dataframes
@@ -250,7 +279,7 @@ class Ecosystem():
             feed_conc     : float = 1,
             feed_freq     : float = -1,
             delta         : float = 0.1,
-            dt            : float = 0.1,
+            dt            : float = 0.01,
             verbose       : bool = True,
             biomass_thresh: float = 1.0,
             nut_thresh    : float = 0, 
@@ -272,11 +301,11 @@ class Ecosystem():
         delta : float
             The outflow dilution rate of the ecosystem.
         dt : float
-            The time spacing at which to return the mass trajectories.
+            The timestep at which to integrate.
         verbose : bool
             Whether to display a progress bar during the integration.
         biomass_thresh : float
-            The threshold below which the biomass is set to zero.
+            The threshold below which the biomass for each species is set to zero.
         nut_thresh : float
             The threshold below which the nutrient concentration is set to zero.
         term_event : dict

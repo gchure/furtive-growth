@@ -99,12 +99,10 @@ def matplotlib_style(return_colors=True, return_palette=True, **kwargs):
     lato_font = None
     if PYFONTS_AVAILABLE:
         try:
-            font = load_font(
+            lato_font = load_font(
                 font_url="https://github.com/google/fonts/blob/main/ofl/lato/Lato-Regular.ttf?raw=true"
             )
         except Exception:
-            # If loading fails, we'll continue without the custom font
-            font = 'sans-serif'
             pass
             
     # Define the matplotlib styles.
@@ -141,7 +139,7 @@ def matplotlib_style(return_colors=True, return_palette=True, **kwargs):
 
         # Axes label formatting.
         "axes.labelpad": 0,
-        "axes.labelweight": 700,
+        "axes.labelweight": 400,
         "xaxis.labellocation": "center",
         "yaxis.labellocation": "center",
         "axes.labelsize": 8,
@@ -170,7 +168,7 @@ def matplotlib_style(return_colors=True, return_palette=True, **kwargs):
         "ytick.minor.size": 0,
 
         # General Font styling
-        "font.family": font,
+        "font.family": 'sans-serif',
         "font.weight": 400,  # Weight of all fonts unless overriden.
         "font.style": "normal",
         "text.color": "#3d3d3d",  
@@ -191,7 +189,11 @@ def matplotlib_style(return_colors=True, return_palette=True, **kwargs):
     # Load the colors and palettes.
     colors, palette = get_colors(**kwargs)
     sns.set_palette(palette)
-    
+
+    # Set font if loaded.
+    if lato_font is not None:
+        matplotlib_style.font = lato_font 
+
     # Determine what, if anything should be returned
     result = []
     if return_colors:

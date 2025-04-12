@@ -1,6 +1,13 @@
 import matplotlib
 import seaborn as sns
 
+# Attempt using pyfonts. Otherwise, default to standard sans serif
+try:
+    from pyfonts import load_font
+    PYFONTS_AVAILABLE = True
+except ImportError:
+    PYFONTS_AVAILABLE = False
+
 def get_colors(all_palettes=False):
     """
     Generates a dictionary of standard colors and returns a sequential color
@@ -11,6 +18,13 @@ def get_colors(all_palettes=False):
     all_palettes : bool
         If True, lists of `dark`, `primary`, and `light` palettes will be returned. If
         False, only the `primary` palette will be returned.
+        
+    Returns
+    -------
+    tuple
+        A tuple containing (colors_dict, palette), where colors_dict is a 
+        dictionary of all color names and hex values, and palette is either
+        a single list of colors or a list of three palettes based on all_palettes.
     """
     # Define the colors
     colors = {
@@ -58,12 +72,12 @@ def get_colors(all_palettes=False):
     else:
         palette = primary_palette
 
-    return [colors, palette]
+    return (colors, palette)
 
 
 def matplotlib_style(return_colors=True, return_palette=True, **kwargs):
     """
-    Assigns the plotting style for matplotlib generated figures.
+    Assigns the plotting style for matplotlib generated figures with Lato font.
 
     Parameters
     ----------
@@ -71,12 +85,33 @@ def matplotlib_style(return_colors=True, return_palette=True, **kwargs):
         If True, a dictionary of the colors is returned. Default is True.
     return_palette: bool
         If True, a sequential color palette is returned. Default is True.
+    **kwargs
+        Additional keyword arguments to pass to get_colors().
+        
+    Returns
+    -------
+    tuple or None
+        If return_colors or return_palette is True, returns a tuple with 
+        (colors, palette), with None in place of any unrequested component.
+        If both are False, returns None.
     """
+    # Load the Lato font if PyFonts is available
+    lato_font = None
+    if PYFONTS_AVAILABLE:
+        try:
+            font = load_font(
+                font_url="https://github.com/google/fonts/blob/main/ofl/lato/Lato-Regular.ttf?raw=true"
+            )
+        except Exception:
+            # If loading fails, we'll continue without the custom font
+            font = 'sans-serif'
+            pass
+            
     # Define the matplotlib styles.
     rc = {
         # Axes formatting
         "axes.facecolor": "#f0f3f7",
-        "axes.edgecolor": "#ffffff",  # 5b5b5b",
+        "axes.edgecolor": "#ffffff", 
         "axes.labelcolor": "#5b5b5b",
         "axes.spines.right": False,
         "axes.spines.top": False,
@@ -135,11 +170,10 @@ def matplotlib_style(return_colors=True, return_palette=True, **kwargs):
         "ytick.minor.size": 0,
 
         # General Font styling
-        "font.family": "sans-serif",
-        "font.family": "Lato",
+        "font.family": font,
         "font.weight": 400,  # Weight of all fonts unless overriden.
         "font.style": "normal",
-        "text.color": "#3d3d3d",  # "#5b5b5b",
+        "text.color": "#3d3d3d",  
 
         # Higher-order things
         "pdf.fonttype": 42,
@@ -150,20 +184,30 @@ def matplotlib_style(return_colors=True, return_palette=True, **kwargs):
         "savefig.bbox": "tight",
         "mathtext.default": "regular",
     }
+    
+    # Apply the styles
     matplotlib.style.use(rc)
 
     # Load the colors and palettes.
     colors, palette = get_colors(**kwargs)
     sns.set_palette(palette)
-
+    
     # Determine what, if anything should be returned
-    out = []
-    if return_colors == True:
-        out.append(colors)
-    if return_palette == True:
-        out.append(palette)
-
-    if len(out) == 1:
-        return out[0]
+    result = []
+    if return_colors:
+        result.append(colors)
     else:
-        return out
+        result.append(None)
+        
+    if return_palette:
+        result.append(palette)
+    else:
+        result.append(None)
+        
+    # Return None if nothing was requested, otherwise return tuple
+    if not return_colors and not return_palette:
+        return None
+    elif len(result) == 1:
+        return result[0]
+    else:
+        return tuple(result)

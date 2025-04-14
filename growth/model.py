@@ -62,7 +62,7 @@ class Species():
         if self.Y <= 0:
             raise ValueError("Y must be positive.")
        
-    def update(self, 
+    def update_growth_rate(self, 
                c_nt: float) -> None:
         """
         Update the species' state based on nutrient concentration.
@@ -98,21 +98,25 @@ class Species():
             An array containing the time derivatives of species biomass and
             nutrient consumption per species.
         """
-        self.update(c_nt)
-        
+        if self.extinct:
+            self.update_growth_rate(0)
+            return np.zeros(2)
+
+        self.update_growth_rate(c_nt) 
         dM_dt = M * (self.effective_growth_rate - delta)
         dc_nt_dt = -self.growth_rate * M / self.Y
+
         return np.array([dM_dt, dc_nt_dt])
         
-    def get_data(self) -> dict:
+    def get_data(self, c_nt: float) -> dict:
         """
-        Return a dictionary with the current state of the species.
+        Return a dictionary with the physiological state of the species.
         
         Returns
         -------
         dict
             Dictionary containing species parameters and state.
-        """
+        """        
         return {
             'growth_rate': self.growth_rate,
             'growth_rate_max': self.lambda_max,
@@ -206,12 +210,25 @@ class Ecosystem:
         # Extract biomasses and nutrient concentration
         biomass = pars[:-1]
         c_nt = max(pars[-1], 0) if pars[-1] >= args['nut_thresh'] else 0
-        
+        biomass_thresh = args['biomass_thresh'] 
+
         # Initialize derivatives array
         derivs = np.zeros_like(pars)
-        
+         
         # Compute derivatives for each species
         for i, s in enumerate(self.species):
+            if s.extinct:
+                biomass[i] = 0  # Force biomass to zero for extinct species
+                derivs[i] = -1E9   # No further change in biomass
+                continue
+            
+            # Check for new extinction events
+            if biomass[i] < biomass_thresh:
+                s.extinct = True
+                biomass[i] = 0
+                derivs[i] = 0 
+                continue
+
             _derivs = s.compute_derivatives(biomass[i], c_nt, self.delta)
             derivs[i] = _derivs[0]        # Biomass derivative
             derivs[-1] += _derivs[-1]     # Nutrient consumption
@@ -243,15 +260,15 @@ class Ecosystem:
         # Extract solution data
         result = self._last_soln.y
         time_dim = self._last_soln.t
-        biomasses = result[:-1]
+        biomasses = result[:self.num_species]
         c_nt = np.maximum(result[-1], 0) # Ensure physical nutrient concentration
-        tot_mass = np.sum(biomasses, axis=0)
-        
+        tot_mass = np.sum(biomasses, axis=0) 
+
         # Create species dataframes
         dfs = []
         for i, s in enumerate(self.species):
             # Update species state based on final nutrient concentration
-            s.update(c_nt)
+            s.update_growth_rate(c_nt)
             
             # Create dataframe with all species properties
             _df = pd.DataFrame({
@@ -318,6 +335,10 @@ class Ecosystem:
         [species_df, bulk_df] : list[DataFrame]
             A list containing the time and mass trajectories.
         """
+        # Reset all species as not extinct
+        for s in self.species:
+            s.extinct = False
+
         # Store simulation parameters as instance variables
         self.delta = delta
         self.feed_conc = feed_conc

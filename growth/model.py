@@ -49,6 +49,7 @@ class Species():
     growth_rate: float = field(default=0.0, init=False)
     effective_growth_rate: float = field(default=0.0, init=False)
     extinct: bool = field(default=False, init=False)
+    extinction_time: bool = field(default=float('inf'), init=False)
     fixed: bool = field(default=False, init=False) 
 
     def __post_init__(self):
@@ -61,7 +62,26 @@ class Species():
             raise ValueError("gamma must be non-negative.")
         if self.Y <= 0:
             raise ValueError("Y must be positive.")
-       
+    def _compute_growth_rate(self,
+                            c_nt: Union[float, list[float]]) -> list[float]:
+        """
+        Computes and returns the instantaneous and effective growth rate at 
+        a given nutrient concentration.
+
+        Parameters 
+        -----------
+        c_nt : float
+            The environmental nutrient concentration. 
+        
+        Returns
+        -------
+        [growth_rate, eff_growth_rate] : [float, float]
+            The instantaneous and effective growth rate. 
+        """
+        c_nt = np.maximum(c_nt, 0)
+        growth_rate = self.lambda_max * c_nt / (self.Km + c_nt)
+        eff_growth_rate = growth_rate - self.gamma
+        return [growth_rate, eff_growth_rate]
     def update_growth_rate(self, 
                c_nt: float) -> None:
         """
@@ -73,8 +93,7 @@ class Species():
             The environmental nutrient concentration.
         """
         c_nt = np.maximum(c_nt, 0)  # Ensure physical concentration
-        self.growth_rate = self.lambda_max * c_nt / (self.Km + c_nt)
-        self.effective_growth_rate = self.growth_rate - self.gamma
+        self.growth_rate, self.effective_growth_rate = self._compute_growth_rate(c_nt)
         
     def compute_derivatives(self, 
                             M    : float, 
@@ -107,27 +126,6 @@ class Species():
         dc_nt_dt = -self.growth_rate * M / self.Y
 
         return np.array([dM_dt, dc_nt_dt])
-        
-    def get_data(self, c_nt: float) -> dict:
-        """
-        Return a dictionary with the physiological state of the species.
-        
-        Returns
-        -------
-        dict
-            Dictionary containing species parameters and state.
-        """        
-        return {
-            'growth_rate': self.growth_rate,
-            'growth_rate_max': self.lambda_max,
-            'growth_rate_eff': self.effective_growth_rate,
-            'gamma': self.gamma,
-            'Km': self.Km,
-            'Y': self.Y,
-            'extinct': self.extinct,
-            'fixed': self.fixed,
-            'label': self.label
-        }
 
 @dataclass
 class Ecosystem:
@@ -219,12 +217,13 @@ class Ecosystem:
         for i, s in enumerate(self.species):
             if s.extinct:
                 biomass[i] = 0  # Force biomass to zero for extinct species
-                derivs[i] = -1E9   # No further change in biomass
+                derivs[i] = 0
                 continue
             
             # Check for new extinction events
             if biomass[i] < biomass_thresh:
                 s.extinct = True
+                s.extinction_time = t
                 biomass[i] = 0
                 derivs[i] = 0 
                 continue
@@ -268,15 +267,25 @@ class Ecosystem:
         dfs = []
         for i, s in enumerate(self.species):
             # Update species state based on final nutrient concentration
-            s.update_growth_rate(c_nt)
+            growth_rate, eff_growth_rate = s._compute_growth_rate(c_nt)
             
             # Create dataframe with all species properties
             _df = pd.DataFrame({
                 'M': biomasses[i],
                 'frequency': biomasses[i] / tot_mass,
                 'time': time_dim + time_shift,
-                **s.get_data()  # Include all species data from the get_data method
+                'lambda_max': s.lambda_max,
+                'gamma': s.gamma,
+                'growth_rate': growth_rate,
+                'effective_growth_rate': eff_growth_rate,
+                'extinct': s.extinct,
+                'label': s.label,
+                'Km': s.Km,
+                'Y': s.Y
             })
+
+            if s.extinct:
+                _df.loc[_df['time'] <= s.extinction_time, 'extinct'] = False
             dfs.append(_df)
         
         # Combine all species data
@@ -298,7 +307,7 @@ class Ecosystem:
             delta         : float = 0.1,
             dt            : float = 0.01,
             verbose       : bool = True,
-            biomass_thresh: float = 1.0,
+            biomass_thresh: float = 0,
             nut_thresh    : float = 0, 
             term_event    : dict = {'type': None},
             solver_kwargs : dict = {'method': 'LSODA'}) -> list[DataFrame]:

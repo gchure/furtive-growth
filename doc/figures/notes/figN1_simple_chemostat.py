@@ -16,7 +16,7 @@ lambda_max = [1.5, 2]
 
 # Set the common parameter dictionary for all species
 pars = {'Km': 0.01,
-        'gamma': 0.1,
+        'gamma': 0.8,
         'Y': 0.1}
 
 # Set the community using a list comprehension
@@ -28,14 +28,15 @@ M0 = 1E2
 ecosystem = Ecosystem(community, init_total_biomass=M0)
 
 # Grow under a constant dilution scheme
-dilution_rate = 0.2
-n_dil = 50
+dilution_rate = 0.001
+n_dil = 10
 total_time = n_dil / dilution_rate
+# total_time = 1E2
 c0 = 1E5
 species_df, bulk_df = ecosystem.grow(total_time, feed_conc=c0,
                                      delta=dilution_rate)
-bulk_df['n_dil'] = bulk_df['time'] * dilution_rate
-species_df['n_dil'] = species_df['time'] * dilution_rate
+bulk_df['n_dil'] = bulk_df['time']# * dilution_rate
+species_df['n_dil'] = species_df['time']# * dilution_rate
 
 #%%
 # Set the figure with the example dynamics
@@ -63,4 +64,3 @@ biomass_ax.legend()
 # Add context
 biomass_ax.set_ylabel('$M(t)$\nsystem biomass', fontsize=6)
 freq_ax.set_ylabel('$M_s(t)/M(t)$\nspecies mass-frequency', fontsize=6)
-plt.savefig('./plots/')

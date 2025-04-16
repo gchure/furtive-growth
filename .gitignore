@@ -9,4 +9,5 @@
 *.venv*
 *trajectories.csv
 *.venv
+*.pytest_cache*
 /simulations/output/*.csv

@@ -259,9 +259,10 @@ class Ecosystem:
         # Extract solution data
         result = self._last_soln.y
         time_dim = self._last_soln.t
-        biomasses = result[:self.num_species]
+        biomasses = np.maximum(result[:-1], 0)
+        tot_biomass = np.sum(biomasses, axis=0)
+        tot_biomass[tot_biomass <= 0] = float('inf')
         c_nt = np.maximum(result[-1], 0) # Ensure physical nutrient concentration
-        tot_mass = np.sum(biomasses, axis=0) 
 
         # Create species dataframes
         dfs = []
@@ -272,7 +273,7 @@ class Ecosystem:
             # Create dataframe with all species properties
             _df = pd.DataFrame({
                 'M': biomasses[i],
-                'frequency': biomasses[i] / tot_mass,
+                'frequency': biomasses[i] / tot_biomass,
                 'time': time_dim + time_shift,
                 'lambda_max': s.lambda_max,
                 'gamma': s.gamma,
@@ -291,10 +292,11 @@ class Ecosystem:
         # Combine all species data
         species_df = pd.concat(dfs, sort=False)
         
+
         # Create environment dataframe
         bulk_df = pd.DataFrame({
             'M_nut': c_nt,
-            'M_tot': tot_mass,
+            'M_tot': tot_biomass,
             'time': time_dim + time_shift
         })
         
@@ -307,7 +309,7 @@ class Ecosystem:
             delta         : float = 0.1,
             dt            : float = 0.01,
             verbose       : bool = True,
-            biomass_thresh: float = 0,
+            biomass_thresh: float = -float('inf'),
             nut_thresh    : float = 0, 
             term_event    : dict = {'type': None},
             solver_kwargs : dict = {'method': 'LSODA'}) -> list[DataFrame]:

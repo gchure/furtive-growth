@@ -77,7 +77,7 @@ def main():
         gc.collect()
     return pd.concat(results) 
 
-if __name__ == '__main__':
-    df = main()
-    df.to_csv('./simulations/output/phase_diagram_end_states.csv', index=False)
-    print('Done!')
+
+df = main()
+df.to_csv('./output/phase_diagram_end_states.csv', index=False)
+print('Done!')

@@ -168,7 +168,7 @@ def matplotlib_style(return_colors=True, return_palette=True, **kwargs):
         "ytick.minor.size": 0,
 
         # General Font styling
-        "font.family": 'sans-serif',
+        "font.family": 'lato',
         "font.weight": 400,  # Weight of all fonts unless overriden.
         "font.style": "normal",
         "text.color": "#3d3d3d",  
@@ -190,9 +190,9 @@ def matplotlib_style(return_colors=True, return_palette=True, **kwargs):
     colors, palette = get_colors(**kwargs)
     sns.set_palette(palette)
 
-    # Set font if loaded.
-    if lato_font is not None:
-        matplotlib_style.font = lato_font 
+    # # Set font if loaded.
+    # if lato_font is not None:
+    #     matplotlib_style.font = lato_font 
 
     # Determine what, if anything should be returned
     result = []
